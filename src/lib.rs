@@ -40,9 +40,11 @@ pub fn routes(state: AppState) -> impl poem::IntoEndpoint {
     let api = (ArrivalApi, HealthApi, PanicApi, PresenceApi);
     let service = OpenApiService::new(api, "OpenLab API for the app :3", env!("CARGO_PKG_VERSION"));
     let ui = service.swagger_ui();
+    let spec_yaml = service.spec_endpoint_yaml();
 
     poem::Route::new()
         .nest("/", service)
+        .nest("/spec", spec_yaml)
         .nest("/docs", ui)
         .with(Cors::new().allow_credentials(true))
         .with(Compression::new())
