@@ -6,8 +6,10 @@ edition = "2024"
 [dependencies]
 clap = { version = "4.5.40", features = ["derive", "wrap_help"] }
 color-eyre = "0.6.5"
-libc = "0.2.172"
+libc = "0.2.174"
 moka = { version = "0.12.10", features = ["future"] }
+oauth2 = "5.0.0"
+openidconnect = { version = "4.0.0", features = ["accept-rfc3339-timestamps", "accept-string-booleans"] }
 poem = { version = "3.1.11", features = ["compression", "eyre06", "websocket"] }
 poem-openapi = { version = "5.1.15", features = [
     "swagger-ui",

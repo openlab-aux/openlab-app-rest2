@@ -34,13 +34,7 @@ pub struct Response {
 }
 
 #[derive(Deserialize, Object, Serialize)]
-pub struct Presence {
-    pub nickname: Zeroizing<String>,
-}
-
-#[derive(Deserialize, Object, Serialize)]
 pub struct ArrivalRequest {
-    pub nickname: Zeroizing<String>,
     pub arrival_type: ArrivalType,
     pub when: OffsetDateTime,
 }

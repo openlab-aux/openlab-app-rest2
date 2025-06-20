@@ -16,6 +16,7 @@ use std::{path::PathBuf, time::Duration};
 
 pub mod api;
 pub mod config;
+pub mod oidc;
 pub mod state;
 pub mod types;
 pub mod util;

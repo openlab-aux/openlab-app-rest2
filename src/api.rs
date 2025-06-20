@@ -1,11 +1,36 @@
 use crate::{
     state::AppState,
-    types::{Arrival, ArrivalRequest, ArrivalResponse, Presence, PresenceResponse, Response},
+    types::{Arrival, ArrivalRequest, ArrivalResponse, PresenceResponse, Response},
     util::Zeroizing,
 };
-use poem::web::Data;
-use poem_openapi::{ApiResponse, OpenApi, SecurityScheme, Tags, auth::Bearer, payload::Json};
+use poem::{IntoResponse, web::Data};
+use poem_openapi::{
+    ApiResponse, OpenApi, ResponseContent, SecurityScheme, Tags,
+    auth::Bearer,
+    payload::{Json, PlainText},
+};
 use time::OffsetDateTime;
+
+macro_rules! verify_auth {
+    ($state:ident, $bearer:ident) => {{
+        if let Err(error) = $state.oidc_service.is_allowed(&$bearer).await {
+            error!(?error);
+            return GeneralResponse::Empty;
+        }
+    }};
+}
+
+macro_rules! dispatch_attempt {
+    ($attempt:expr, |$var_name:ident| $logic:block) => {{
+        match { $attempt } {
+            Ok($var_name) => (async move |$var_name| $logic)($var_name).await,
+            Err(error) => {
+                error!(?error);
+                GeneralResponse::Error
+            }
+        }
+    }};
+}
 
 #[derive(Tags)]
 enum ApiTags {
@@ -15,42 +40,87 @@ enum ApiTags {
     Presence,
 }
 
+#[derive(ApiResponse)]
+enum GeneralResponse<T = PlainText<&'static str>>
+where
+    T: IntoResponse + ResponseContent + Send,
+{
+    #[oai(status = "200")]
+    Ok(T),
+
+    #[oai(status = "204")]
+    Empty,
+
+    #[oai(status = "500")]
+    Error,
+}
+
 pub struct ArrivalApi;
 
 #[OpenApi(prefix_path = "/arrival", tag = "ApiTags::Arrival")]
 impl ArrivalApi {
     /// Remove your announced arrival
     #[oai(path = "/", method = "delete")]
-    async fn delete(&self, Json(data): Json<Presence>, Data(state): Data<&AppState>) {
-        state.arrivals.remove(&data.nickname).await;
+    async fn delete(
+        &self,
+        GeneralAuth(bearer): GeneralAuth,
+        Data(state): Data<&AppState>,
+    ) -> GeneralResponse {
+        verify_auth!(state, bearer);
+        dispatch_attempt!(
+            state.oidc_service.load_username(&bearer).await,
+            |username| {
+                state.arrivals.remove(&username).await;
+                GeneralResponse::Empty
+            }
+        )
     }
 
     /// Get all announced arrivals
     #[oai(path = "/", method = "get")]
-    async fn get(&self, Data(state): Data<&AppState>) -> Json<ArrivalResponse> {
+    async fn get(
+        &self,
+        GeneralAuth(bearer): GeneralAuth,
+        Data(state): Data<&AppState>,
+    ) -> GeneralResponse<Json<ArrivalResponse>> {
+        verify_auth!(state, bearer);
+
         let users = state
             .arrivals
             .iter()
             .map(|(name, value)| ((*name).clone(), value))
             .collect();
 
-        Json(ArrivalResponse { users })
+        GeneralResponse::Ok(Json(ArrivalResponse { users }))
     }
 
     /// Announce a new arrival
     #[oai(path = "/", method = "put")]
-    async fn put(&self, Json(data): Json<ArrivalRequest>, Data(state): Data<&AppState>) {
-        state
-            .arrivals
-            .insert(
-                data.nickname,
-                Arrival {
-                    arrival_type: data.arrival_type,
-                    when: data.when,
-                    edited_at: OffsetDateTime::now_utc(),
-                },
-            )
-            .await;
+    async fn put(
+        &self,
+        GeneralAuth(bearer): GeneralAuth,
+        Json(data): Json<ArrivalRequest>,
+        Data(state): Data<&AppState>,
+    ) -> GeneralResponse {
+        verify_auth!(state, bearer);
+        dispatch_attempt!(
+            state.oidc_service.load_username(&bearer).await,
+            |username| {
+                state
+                    .arrivals
+                    .insert(
+                        username,
+                        Arrival {
+                            arrival_type: data.arrival_type,
+                            when: data.when,
+                            edited_at: OffsetDateTime::now_utc(),
+                        },
+                    )
+                    .await;
+
+                GeneralResponse::Empty
+            }
+        )
     }
 }
 
@@ -66,6 +136,11 @@ impl HealthApi {
         })
     }
 }
+
+#[derive(SecurityScheme)]
+#[oai(ty = "openid_connect")]
+#[oai(openid_connect_url = "https://auth.openlab-augsburg.de/application/o/presence/")]
+struct GeneralAuth(Bearer);
 
 #[derive(SecurityScheme)]
 #[oai(ty = "bearer")]
@@ -111,28 +186,57 @@ pub struct PresenceApi;
 impl PresenceApi {
     /// Delete a presence entry
     #[oai(path = "/", method = "delete")]
-    async fn delete(&self, Json(data): Json<Presence>, Data(state): Data<&AppState>) {
-        state.presence.remove(&data.nickname).await;
+    async fn delete(
+        &self,
+        GeneralAuth(bearer): GeneralAuth,
+        Data(state): Data<&AppState>,
+    ) -> GeneralResponse {
+        verify_auth!(state, bearer);
+        dispatch_attempt!(
+            state.oidc_service.load_username(&bearer).await,
+            |username| {
+                state.presence.remove(&username).await;
+                GeneralResponse::Empty
+            }
+        )
     }
 
     /// Get all current presence entries
     #[oai(path = "/", method = "get")]
-    async fn get(&self, Data(state): Data<&AppState>) -> Json<PresenceResponse> {
+    async fn get(
+        &self,
+        GeneralAuth(bearer): GeneralAuth,
+        Data(state): Data<&AppState>,
+    ) -> GeneralResponse<Json<PresenceResponse>> {
+        verify_auth!(state, bearer);
+
         let users = state
             .presence
             .iter()
             .map(|(name, value)| ((*name).clone(), value))
             .collect();
 
-        Json(PresenceResponse { users })
+        GeneralResponse::Ok(Json(PresenceResponse { users }))
     }
 
     /// Announce a new presence
     #[oai(path = "/", method = "put")]
-    async fn put(&self, Json(data): Json<Presence>, Data(state): Data<&AppState>) {
-        state
-            .presence
-            .insert(data.nickname, OffsetDateTime::now_utc())
-            .await;
+    async fn put(
+        &self,
+        GeneralAuth(bearer): GeneralAuth,
+        Data(state): Data<&AppState>,
+    ) -> GeneralResponse {
+        verify_auth!(state, bearer);
+        dispatch_attempt!(
+            state.oidc_service.load_username(&bearer).await,
+            |username| {
+                state
+                    .presence
+                    .insert(username, OffsetDateTime::now_utc())
+                    .await;
+
+                GeneralResponse::Empty
+            }
+        )
     }
 }

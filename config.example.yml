@@ -1,5 +1,9 @@
 api:
   panic_key: "this is my panic key uwu :3"
-
+oidc:
+  url: "https://my-shitty-oidc.lol/suckyamom"
+  client_id: "allowörld"
+  allowed_groups:
+    - "Members"
 server:
   addr: "127.0.0.1:5000"
